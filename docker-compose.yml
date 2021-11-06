@@ -7,7 +7,8 @@ services:
       - "8000:80"
     volumes:
       - /var/run/docker.sock:/tmp/docker.sock:ro
-
+    networks:
+      - redundancy-network
   web1:
     container_name: apache_php1
     build: ./docker/web
@@ -19,6 +20,8 @@ services:
     depends_on:
       - master
       - slave
+    networks:
+      - redundancy-network
   web2:
     container_name: apache_php2
     build: ./docker/web
@@ -29,15 +32,16 @@ services:
     depends_on:
       - master
       - slave
-
-  master:
+    networks:
+      - redundancy-network
+  mysql_master:
     container_name: mysql_master
     build:
       context: .
       dockerfile: ./docker/db/Dockerfile
     volumes:
       - ./db/master/:/conf
-      - ./setup.sh:/usr/local/bin/setup.sh
+      - ./db/setup.sh:/usr/local/bin/setup.sh
       - master_log:/var/log/mysql/
       - master_db:/var/lib/mysql
     tty: true
@@ -46,65 +50,26 @@ services:
       MYSQL_USER: 'user'
       MYSQL_PASSWORD: 'password'
       MYSQL_ROOT_PASSWORD: 'master'
-    command: >
-      bash -c "
-      cp db/master/my.cnf /etc/mysql/conf.d/ &&
-      chmod 644 /etc/mysql/conf.d/my.cnf &&
-      /entrypoint.sh mysqld"
-    networks:
-      - redundancy-network
-
-  slave:
-    container_name: mysql_slave
-    build:
-      context: .
-      dockerfile: ./docker/db/Dockerfile
-    volumes:
-      - ./db/slave/:/conf
-      - ./setup.sh:/usr/local/bin/setup.sh
-      - slave_log:/var/log/mysql/
-      - slave_db:/var/lib/mysql
-    tty: true
-    environment:
-      TZ: 'Asia/Tokyo'
-      MYSQL_USER: 'user'
-      MYSQL_PASSWORD: 'password'
-      MYSQL_ROOT_PASSWORD: 'slave'
-    command: >
-      bash -c "
-      cp /db/slave/my.cnf /etc/mysql/conf.d/ &&
-      chmod 644 /etc/mysql/conf.d/my.cnf &&
-      /entrypoint.sh mysqld"
     networks:
       - redundancy-network
 
   phpmyadmin1:
     container_name: phpmyadmin1
     image: phpmyadmin/phpmyadmin
+    ports:
+      - "8088:80"
     environment:
       - PMA_ARBITRARY=1
-      - PMA_HOST=master
-      - PMA_USER=user
-      - PMA_PASSWORD=password
+      - PMA_HOST=mysql_master
+      - PMA_USER=root
+      - PMA_PASSWORD=master
     links:
-      - master
+      - mysql_master
     volumes:
       - /sessions
       - ./docker/web/php.ini:/usr/local/etc/php/conf.d/phpmyadmin-misc.ini
-  phpmyadmin2:
-    container_name: phpmyadmin2
-    image: phpmyadmin/phpmyadmin
-    environment:
-      - PMA_ARBITRARY=1
-      - PMA_HOST=slave
-      - PMA_USER=user
-      - PMA_PASSWORD=password
-    links:
-      - slave
-    volumes:
-      - /sessions
-      - ./docker/web/php.ini:/usr/local/etc/php/conf.d/phpmyadmin-misc.ini
-
+    networks:
+      - redundancy-network
 volumes:
   master_db: {}
   master_log: {}
